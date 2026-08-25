@@ -2,22 +2,63 @@
 
 ### Lightweight static mesh batching for Godot 4
 
-**Mesh Merger** is a lightweight Godot editor plugin that combines multiple static `MeshInstance3D` nodes into a single optimized mesh.
+**Mesh Merger** is a lightweight Godot editor plugin that combines multiple static `MeshInstance3D` nodes into a single optimized mesh while preserving existing collision data.
 
 Select the meshes you want to merge, click **Merge Selected** in the 3D editor, and Mesh Merger handles the rest.
 
-> **Less clutter. Fewer objects. Same geometry.**
+> **Less clutter. Fewer objects. Same geometry. Existing collision preserved.**
 
 ## Features
 
 * **Merge selected meshes** into a single `ArrayMesh`
 * **Preserve materials and textures** from the original meshes
-* **Remove the original mesh nodes** after a successful merge
+* **Preserve existing collision hierarchies** without modifying their collision shapes
+* **Move preserved collision** under the newly created merged mesh
+* **Remove the original mesh hierarchies** after a successful merge
 * **Create a new `MeshInstance3D`** containing the merged geometry
 * **Save merged meshes** as reusable `.res` resources
 * **Automatically back up original nodes** before making changes
 * **Keep backup scenes out of exported builds**
 * **Editor-only workflow** — no runtime systems or scripts required
+
+## Collision Preservation
+
+Mesh Merger does **not** attempt to generate, convert, or rebuild collision geometry.
+
+If a selected mesh has an existing collision hierarchy such as:
+
+```text
+MeshInstance3D
+└── StaticBody3D
+    └── CollisionShape3D
+```
+
+the collision hierarchy is preserved without modification.
+
+After merging, it becomes part of the new merged mesh hierarchy:
+
+```text
+MeshInstance3D_merged
+└── Collision
+    └── StaticBody3D
+        └── CollisionShape3D
+```
+
+The original collision shape remains the same resource and shape type.
+
+This means Mesh Merger can preserve Godot collision shapes such as:
+
+* `BoxShape3D`
+* `SphereShape3D`
+* `CapsuleShape3D`
+* `CylinderShape3D`
+* `ConvexPolygonShape3D`
+* `ConcavePolygonShape3D`
+* Other existing `CollisionShape3D` configurations
+
+Mesh Merger simply preserves the collision data that already exists rather than trying to recreate it.
+
+> **If your mesh already has collision, Mesh Merger keeps it.**
 
 ## Great for Open-World Games
 
@@ -80,6 +121,33 @@ Environment
 ```
 
 The individual meshes are combined into one mesh while their materials are preserved.
+
+If collision exists, it is preserved as well:
+
+```text
+Before
+
+Environment
+├── Rock_01
+├── Rock_02
+│   └── StaticBody3D
+│       └── CollisionShape3D
+└── Rock_03
+```
+
+becomes:
+
+```text
+After
+
+Environment
+└── Rock_merged
+    └── Collision
+        └── StaticBody3D
+            └── CollisionShape3D
+```
+
+The original collision data is not regenerated or converted.
 
 Your original nodes are also backed up automatically, so you have a way to recover them if needed.
 
@@ -145,8 +213,11 @@ So your original scene data isn't simply thrown into the void.
 2. Click **Merge Selected** in the 3D editor.
 3. Mesh Merger creates a backup.
 4. The meshes are combined into a single `ArrayMesh`.
-5. The original nodes are replaced by the merged mesh.
-6. The merged resource is saved for reuse.
+5. Existing collision hierarchies are preserved without modification.
+6. The original mesh hierarchies are removed.
+7. A new `MeshInstance3D` is created with the merged geometry.
+8. Preserved collision hierarchies are placed under the new merged mesh.
+9. The merged mesh resource is saved for reuse.
 
 That's it.
 
@@ -166,8 +237,13 @@ It does **not** automatically provide:
 * LOD generation
 * Occlusion culling
 * Geometry streaming
-* Collision generation
+* Automatic collision generation
+* Collision shape conversion
 * Nanite-style virtualized geometry
+
+Collision is **preserved**, not generated.
+
+If an object has no existing collision, Mesh Merger will not create collision for it.
 
 If an object needs to move independently, animate independently, or otherwise remain a separate object, **don't merge it**.
 
@@ -177,7 +253,7 @@ Godot can handle a lot of geometry, but a scene containing thousands of individu
 
 Mesh Merger provides a simple editor-side solution:
 
-**Build your level normally → merge what doesn't need to stay separate → ship a cleaner scene.**
+**Build your level normally → add collision where needed → merge what doesn't need to stay separate → ship a cleaner scene.**
 
 No runtime plugin logic. No complicated setup. Just merge and go.
 
