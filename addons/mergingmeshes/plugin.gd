@@ -9,6 +9,7 @@ const BACKUPS_DIR = "res://merge_backups/"
 
 var export_plugin: EditorExportPlugin
 var merge_button: Button
+var collision_button: Button
 
 var confirmation_dialog: ConfirmationDialog
 var pending_selection: Array[Node] = []
@@ -22,6 +23,16 @@ func _enter_tree() -> void:
 	add_control_to_container(
 		EditorPlugin.CONTAINER_SPATIAL_EDITOR_MENU,
 		merge_button
+	)
+
+	collision_button = Button.new()
+	collision_button.text = "Create Collision"
+	collision_button.tooltip_text = "Create StaticBody3D + CollisionShape3D for each selected MeshInstance3D."
+	collision_button.pressed.connect(_on_create_collision_selected)
+
+	add_control_to_container(
+		EditorPlugin.CONTAINER_SPATIAL_EDITOR_MENU,
+		collision_button
 	)
 
 	confirmation_dialog = ConfirmationDialog.new()
@@ -45,6 +56,15 @@ func _exit_tree() -> void:
 		merge_button.queue_free()
 		merge_button = null
 
+	if collision_button:
+		remove_control_from_container(
+			EditorPlugin.CONTAINER_SPATIAL_EDITOR_MENU,
+			collision_button
+		)
+
+		collision_button.queue_free()
+		collision_button = null
+
 	if export_plugin:
 		remove_export_plugin(export_plugin)
 		export_plugin = null
@@ -52,6 +72,194 @@ func _exit_tree() -> void:
 	if confirmation_dialog:
 		confirmation_dialog.queue_free()
 		confirmation_dialog = null
+
+func _on_create_collision_selected() -> void:
+	var editor_selection = get_editor_interface().get_selection()
+	var selected_nodes = editor_selection.get_selected_nodes()
+	var edited_root = get_editor_interface().get_edited_scene_root()
+
+	if edited_root == null:
+		push_warning(
+			"MeshMerger: no scene is currently open."
+		)
+		return
+
+	var meshes_to_process: Array[MeshInstance3D] = []
+
+	for node in selected_nodes:
+		if not node is MeshInstance3D:
+			continue
+
+		var mesh_instance = node as MeshInstance3D
+
+		if not meshes_to_process.has(mesh_instance):
+			meshes_to_process.append(mesh_instance)
+
+	if meshes_to_process.is_empty():
+		push_warning(
+			"MeshMerger: select one or more MeshInstance3D nodes to create collision."
+		)
+		return
+
+	var undo_redo = get_undo_redo()
+	var meshes_created: Array[Array] = []
+	var shape_cache: Dictionary = {}
+	var skipped_existing := 0
+	var skipped_invalid := 0
+	var skipped_instanced := 0
+
+	for mesh_instance in meshes_to_process:
+		if not is_instance_valid(mesh_instance):
+			skipped_invalid += 1
+			continue
+
+		if mesh_instance != edited_root and mesh_instance.owner != edited_root:
+			push_warning(
+				"MeshMerger: skipping '%s' — belongs to an instanced sub-scene."
+				% mesh_instance.name
+			)
+			skipped_instanced += 1
+			continue
+
+		if mesh_instance.mesh == null:
+			push_warning(
+				"MeshMerger: skipping '%s' — no mesh resource is assigned."
+				% mesh_instance.name
+			)
+			skipped_invalid += 1
+			continue
+
+		if _has_direct_static_body(mesh_instance):
+			skipped_existing += 1
+			continue
+
+		var mesh_resource: Mesh = mesh_instance.mesh
+		var collision_shape: Shape3D
+
+		if shape_cache.has(mesh_resource):
+			collision_shape = shape_cache[mesh_resource]
+		else:
+			collision_shape = mesh_resource.create_trimesh_shape()
+
+			if collision_shape == null:
+				push_warning(
+					"MeshMerger: failed to create trimesh collision for '%s'."
+					% mesh_instance.name
+				)
+				skipped_invalid += 1
+				continue
+
+			shape_cache[mesh_resource] = collision_shape
+
+		var body = StaticBody3D.new()
+		body.name = "StaticBody3D"
+
+		var shape_node = CollisionShape3D.new()
+		shape_node.name = "CollisionShape3D"
+		shape_node.shape = collision_shape
+
+		body.add_child(shape_node)
+
+		meshes_created.append([
+			mesh_instance,
+			body
+		])
+
+	if meshes_created.is_empty():
+		print(
+			"MeshMerger: no collision shapes created. Existing: %d, invalid: %d, instanced: %d."
+			% [
+				skipped_existing,
+				skipped_invalid,
+				skipped_instanced
+			]
+		)
+		return
+
+	undo_redo.create_action(
+		"Create Mesh Collision Shapes"
+	)
+
+	for pair in meshes_created:
+		var mesh_instance: MeshInstance3D = pair[0]
+		var body: StaticBody3D = pair[1]
+
+		undo_redo.add_do_method(
+			self,
+			"_add_collision_body",
+			mesh_instance,
+			body,
+			edited_root
+		)
+		undo_redo.add_undo_method(
+			self,
+			"_remove_collision_body",
+			body
+		)
+		undo_redo.add_do_reference(body)
+
+	undo_redo.commit_action()
+
+	print(
+		"MeshMerger: created collision for %d selected MeshInstance3D nodes."
+		% meshes_created.size()
+	)
+
+	if skipped_existing > 0:
+		print(
+			"MeshMerger: skipped %d nodes that already have a StaticBody3D child."
+			% skipped_existing
+		)
+
+	if skipped_invalid > 0:
+		print(
+			"MeshMerger: skipped %d invalid or meshless nodes."
+			% skipped_invalid
+		)
+
+	if skipped_instanced > 0:
+		print(
+			"MeshMerger: skipped %d nodes belonging to instanced sub-scenes."
+			% skipped_instanced
+		)
+
+func _add_collision_body(
+	mesh_instance: MeshInstance3D,
+	body: StaticBody3D,
+	edited_root: Node
+) -> void:
+	if not is_instance_valid(mesh_instance):
+		return
+
+	if not is_instance_valid(body):
+		return
+
+	if body.get_parent() != null:
+		return
+
+	mesh_instance.add_child(body)
+	body.owner = edited_root
+
+	var shape_node = body.get_node_or_null("CollisionShape3D")
+
+	if shape_node != null:
+		shape_node.owner = edited_root
+
+func _remove_collision_body(body: StaticBody3D) -> void:
+	if not is_instance_valid(body):
+		return
+
+	var parent = body.get_parent()
+
+	if parent != null:
+		parent.remove_child(body)
+
+func _has_direct_static_body(mesh_instance: MeshInstance3D) -> bool:
+	for child in mesh_instance.get_children():
+		if child is StaticBody3D:
+			return true
+
+	return false
 
 func _on_merge_selected() -> void:
 	var editor_selection = get_editor_interface().get_selection()
