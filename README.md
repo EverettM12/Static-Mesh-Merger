@@ -1,12 +1,12 @@
 # Static Mesh Merger
 
-### Lightweight static mesh batching for Godot 4
+### Lightweight static mesh batching and collision tools for Godot 4
 
-**Mesh Merger** is a lightweight Godot editor plugin that combines multiple static `MeshInstance3D` nodes into a single optimized mesh while preserving existing collision data.
+**Mesh Merger** is a lightweight Godot editor plugin that combines multiple static `MeshInstance3D` nodes into a single optimized mesh while preserving existing collision data. It also provides a batch tool for quickly generating static trimesh collision for multiple selected meshes.
 
-Select the meshes you want to merge, click **Merge Selected** in the 3D editor, and Mesh Merger handles the rest.
+Select the meshes you want to merge, click **Merge Selected** in the 3D editor, and Mesh Merger handles the rest. Need collision on a bunch of static meshes? Select them all and click **Create Collision**.
 
-> **Less clutter. Fewer objects. Same geometry. Existing collision preserved.**
+> **Less clutter. Fewer objects. Same geometry. Collision preserved or created in batches.**
 
 ## Features
 
@@ -17,13 +17,18 @@ Select the meshes you want to merge, click **Merge Selected** in the 3D editor, 
 * **Remove the original mesh hierarchies** after a successful merge
 * **Create a new `MeshInstance3D`** containing the merged geometry
 * **Save merged meshes** as reusable `.res` resources
-* **Automatically back up original nodes** before making changes
+* **Batch-create collision** for multiple selected `MeshInstance3D` nodes at once
+* **Generate trimesh collision** using each mesh's geometry for static environment objects
+* **Reuse collision shape resources** when selected meshes share the same mesh resource
+* **Skip meshes that already have a direct `StaticBody3D` child** to prevent duplicate collision
+* **Undo batch collision creation** through Godot's normal editor Undo system
+* **Automatically back up original nodes** before making merge changes
 * **Keep backup scenes out of exported builds**
 * **Editor-only workflow** — no runtime systems or scripts required
 
 ## Collision Preservation
 
-Mesh Merger does **not** attempt to generate, convert, or rebuild collision geometry.
+Mesh Merger does **not** rebuild existing collision geometry when merging.
 
 If a selected mesh has an existing collision hierarchy such as:
 
@@ -56,9 +61,43 @@ This means Mesh Merger can preserve Godot collision shapes such as:
 * `ConcavePolygonShape3D`
 * Other existing `CollisionShape3D` configurations
 
-Mesh Merger simply preserves the collision data that already exists rather than trying to recreate it.
+Mesh Merger simply preserves collision data that already exists rather than trying to recreate it during a merge.
 
 > **If your mesh already has collision, Mesh Merger keeps it.**
+
+## Batch Collision Creation
+
+Mesh Merger can also create collision for many static meshes in one operation.
+
+Select multiple `MeshInstance3D` nodes and click **Create Collision**. Each selected mesh receives its own static collision hierarchy:
+
+```text
+Grass_Patch_01
+└── StaticBody3D
+    └── CollisionShape3D
+
+Grass_Patch_02
+└── StaticBody3D
+    └── CollisionShape3D
+
+Grass_Patch_03
+└── StaticBody3D
+    └── CollisionShape3D
+```
+
+The collision shape is generated from the mesh using a trimesh/`ConcavePolygonShape3D`, which is intended for static environment geometry.
+
+The batch tool is useful for situations where many separate environment meshes need collision but you do not want to create each `StaticBody3D` and `CollisionShape3D` manually.
+
+The tool also:
+
+* Skips meshes that already have a direct `StaticBody3D` child
+* Skips mesh instances without a mesh resource
+* Skips meshes that belong to an instanced sub-scene
+* Reuses a generated shape resource when multiple meshes use the same mesh resource
+* Supports undoing the entire batch operation as one editor action
+
+> **Select 37 grass patches. Click once. Get 37 collision hierarchies.**
 
 ## Great for Open-World Games
 
@@ -149,7 +188,39 @@ Environment
 
 The original collision data is not regenerated or converted.
 
-Your original nodes are also backed up automatically, so you have a way to recover them if needed.
+For meshes that do not have collision yet, use **Create Collision** before or after organizing your static environment:
+
+```text
+Before
+
+Environment
+├── Grass_Patch_01
+├── Grass_Patch_02
+├── Grass_Patch_03
+└── Grass_Patch_04
+```
+
+Select all four and click **Create Collision**:
+
+```text
+After
+
+Environment
+├── Grass_Patch_01
+│   └── StaticBody3D
+│       └── CollisionShape3D
+├── Grass_Patch_02
+│   └── StaticBody3D
+│       └── CollisionShape3D
+├── Grass_Patch_03
+│   └── StaticBody3D
+│       └── CollisionShape3D
+└── Grass_Patch_04
+    └── StaticBody3D
+        └── CollisionShape3D
+```
+
+Your original nodes are also backed up automatically before merge operations, so you have a way to recover them if needed.
 
 ## Is This Nanite?
 
@@ -167,9 +238,9 @@ It does **not** provide:
 
 Instead, Mesh Merger takes a much simpler approach:
 
-> **Combine lots of static objects into fewer objects.**
+> **Combine lots of static objects into fewer objects and automate repetitive collision setup.**
 
-Think of it as a small, editor-side **static mesh batching tool** rather than a Nanite replacement.
+Think of it as a small, editor-side **static mesh batching and collision workflow tool** rather than a Nanite replacement.
 
 ## Best Used For
 
@@ -179,6 +250,7 @@ Mesh Merger is designed primarily for **static level geometry**, including:
 * Environment pieces
 * Buildings
 * Rocks
+* Trees and vegetation patches
 * Props
 * Decorations
 * Modular level sections
@@ -189,7 +261,7 @@ It's especially useful when a scene contains large numbers of small static meshe
 
 ## Safety First
 
-Mesh Merger creates a backup **before modifying the scene**.
+Mesh Merger creates a backup **before modifying the scene through a merge operation**.
 
 Backups are stored in:
 
@@ -209,6 +281,8 @@ So your original scene data isn't simply thrown into the void.
 
 ## Usage
 
+### Merge meshes
+
 1. Select the `MeshInstance3D` nodes you want to merge.
 2. Click **Merge Selected** in the 3D editor.
 3. Mesh Merger creates a backup.
@@ -218,6 +292,15 @@ So your original scene data isn't simply thrown into the void.
 7. A new `MeshInstance3D` is created with the merged geometry.
 8. Preserved collision hierarchies are placed under the new merged mesh.
 9. The merged mesh resource is saved for reuse.
+
+### Batch-create collision
+
+1. Select one or more `MeshInstance3D` nodes.
+2. Click **Create Collision** in the 3D editor.
+3. Mesh Merger creates a `StaticBody3D` under each eligible mesh.
+4. A `CollisionShape3D` using generated trimesh collision is added under each body.
+5. Meshes that already have a direct `StaticBody3D` child are skipped.
+6. The entire batch can be undone with Godot's normal Undo action.
 
 That's it.
 
@@ -237,13 +320,15 @@ It does **not** automatically provide:
 * LOD generation
 * Occlusion culling
 * Geometry streaming
-* Automatic collision generation
-* Collision shape conversion
 * Nanite-style virtualized geometry
+* Automatic collision conversion for every possible physics setup
 
-Collision is **preserved**, not generated.
+The plugin supports two separate collision workflows:
 
-If an object has no existing collision, Mesh Merger will not create collision for it.
+* **Preserve existing collision** during a mesh merge
+* **Generate static trimesh collision in batches** with **Create Collision**
+
+Trimesh collision is intended for **static geometry**. It is not a replacement for carefully designed primitive or convex collision on objects that need custom physics behavior.
 
 If an object needs to move independently, animate independently, or otherwise remain a separate object, **don't merge it**.
 
@@ -253,9 +338,9 @@ Godot can handle a lot of geometry, but a scene containing thousands of individu
 
 Mesh Merger provides a simple editor-side solution:
 
-**Build your level normally → add collision where needed → merge what doesn't need to stay separate → ship a cleaner scene.**
+**Build your level normally → batch-add collision where needed → merge what doesn't need to stay separate → ship a cleaner scene.**
 
-No runtime plugin logic. No complicated setup. Just merge and go.
+No runtime plugin logic. No complicated setup. Just select, click, and go.
 
 ---
 
