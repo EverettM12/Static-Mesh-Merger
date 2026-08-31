@@ -1,8 +1,8 @@
 @tool
 extends EditorPlugin
 
-const MeshMergerUtils = preload("res://addons/mergingmeshes/merge_utils.gd")
-const MeshMergerExportPlugin = preload("res://addons/mergingmeshes/export_plugin.gd")
+const MeshMergerUtils = preload("res://addons/StaticMeshMerger/merge_utils.gd")
+const MeshMergerExportPlugin = preload("res://addons/StaticMeshMerger/export_plugin.gd")
 
 const MESHES_DIR = "res://meshes/"
 const BACKUPS_DIR = "res://merge_backups/"
@@ -104,9 +104,9 @@ func _on_create_collision_selected() -> void:
 	var undo_redo = get_undo_redo()
 	var meshes_created: Array[Array] = []
 	var shape_cache: Dictionary = {}
-	var skipped_existing := 0
-	var skipped_invalid := 0
-	var skipped_instanced := 0
+	var skipped_existing = 0
+	var skipped_invalid = 0
+	var skipped_instanced = 0
 
 	for mesh_instance in meshes_to_process:
 		if not is_instance_valid(mesh_instance):
