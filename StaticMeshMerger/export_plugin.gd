@@ -1,3 +1,4 @@
+@tool
 extends EditorExportPlugin
 
 const EXCLUDED_PREFIX := "res://merge_backups/"
